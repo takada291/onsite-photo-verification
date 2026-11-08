@@ -1,5 +1,5 @@
 // バージョンを変更するだけで旧キャッシュが完全に吹き飛びます
-const CACHE_NAME = 'onsite-photo-verification-v1.5';
+const CACHE_NAME = 'onsite-photo-verification-v1.6';
 
 const urlsToCache = [
   './',
