@@ -50,7 +50,7 @@
 </head>
 <body>
 
-    <header>現地証明 v1.4</header>
+    <header>現地証明 v1.5</header>
     <div id="lib-status">⏳ ライブラリ読込中...</div>
 
     <div class="tabs">
@@ -271,13 +271,21 @@
         let map = null;
         let marker = null;
 
+        // 12桁と14桁の両方に対応
         function parseTimestamp(ts) {
-            if(ts.length !== 12) return ts;
+            if (ts.length !== 12 && ts.length !== 14) return ts;
             const yyyy = ts.slice(0, 4);
             const mm = ts.slice(4, 6);
             const dd = ts.slice(6, 8);
             const hh = ts.slice(8, 10);
             const mi = ts.slice(10, 12);
+            
+            // 14桁（秒あり）の場合
+            if (ts.length === 14) {
+                const ss = ts.slice(12, 14);
+                return `${yyyy}年${mm}月${dd}日 ${hh}:${mi}:${ss}`;
+            }
+            // 12桁（秒なし）の場合
             return `${yyyy}年${mm}月${dd}日 ${hh}:${mi}`;
         }
 
@@ -332,8 +340,8 @@
                 const data = code.data;
                 const parts = data.split(',');
                 
-                // 1. 現地証明アプリのQRデータ判定を最優先（URLより先にチェック）
-                if (parts.length === 3 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1])) && parts[2].length === 12) {
+                // 1. 現地証明アプリのQRデータ判定を最優先（12桁と14桁の両方を許容）
+                if (parts.length === 3 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1])) && (parts[2].length === 12 || parts[2].length === 14)) {
                     const lat = parseFloat(parts[0]);
                     const lng = parseFloat(parts[1]);
                     const timeStr = parseTimestamp(parts[2]);
