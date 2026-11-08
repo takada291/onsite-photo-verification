@@ -10,6 +10,14 @@
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-WXBP6CPKLP"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-WXBP6CPKLP');
+    </script>
     
     <style>
         body { margin: 0; font-family: 'Helvetica Neue', Arial, sans-serif; background: #f4f7f6; color: #333; }
@@ -50,7 +58,7 @@
 </head>
 <body>
 
-    <header>現地証明 v1.5</header>
+    <header>現地証明 v1.6</header>
     <div id="lib-status">⏳ ライブラリ読込中...</div>
 
     <div class="tabs">
@@ -100,6 +108,9 @@
             </div>
             
             <div id="qr-result-display"></div>
+            
+            <!-- v1.6追加: 現在地照らし合わせボタン -->
+            <button class="btn btn-teal" id="btn-show-gps" style="display: none; margin-bottom: 10px;" onclick="addCurrentLocationToMap()">📍 現在地と照らし合わせる</button>
             <div id="map"></div>
         </div>
     </div>
@@ -269,7 +280,8 @@
         // 【タブ2】QR読込・地図表示機能
         // ==========================================
         let map = null;
-        let marker = null;
+        let photoMarker = null;
+        let currentLocMarker = null;
 
         // 12桁と14桁の両方に対応
         function parseTimestamp(ts) {
@@ -280,12 +292,10 @@
             const hh = ts.slice(8, 10);
             const mi = ts.slice(10, 12);
             
-            // 14桁（秒あり）の場合
             if (ts.length === 14) {
                 const ss = ts.slice(12, 14);
                 return `${yyyy}年${mm}月${dd}日 ${hh}:${mi}:${ss}`;
             }
-            // 12桁（秒なし）の場合
             return `${yyyy}年${mm}月${dd}日 ${hh}:${mi}`;
         }
 
@@ -301,6 +311,13 @@
             document.getElementById('qr-result-display').style.display = 'block';
             document.getElementById('qr-result-display').innerHTML = "⏳ 画像を解析中...";
             document.getElementById('map').style.display = 'none';
+            document.getElementById('btn-show-gps').style.display = 'none';
+            
+            // 過去の現在地マーカーがあればリセット
+            if (currentLocMarker && map) {
+                map.removeLayer(currentLocMarker);
+                currentLocMarker = null;
+            }
 
             const reader = new FileReader();
             reader.onload = function(e) {
@@ -340,7 +357,7 @@
                 const data = code.data;
                 const parts = data.split(',');
                 
-                // 1. 現地証明アプリのQRデータ判定を最優先（12桁と14桁の両方を許容）
+                // 1. 現地証明アプリのQRデータ判定を最優先
                 if (parts.length === 3 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1])) && (parts[2].length === 12 || parts[2].length === 14)) {
                     const lat = parseFloat(parts[0]);
                     const lng = parseFloat(parts[1]);
@@ -351,13 +368,13 @@
                     return; 
                 }
 
-                // 2. URL（ポータルサイト等）のQRコードだった場合の対応
+                // 2. URL
                 if (data.startsWith('http://') || data.startsWith('https://')) {
                     resultDisplay.innerHTML = `<b>🔗 URLを検出しました</b><br><a href="${data}" target="_blank" style="word-break: break-all;">${data}</a>`;
                     return;
                 }
 
-                // 3. どちらでもない場合
+                // 3. その他
                 resultDisplay.innerHTML = `❌ 未対応のデータ形式です<br>${data}`;
                 
             } else {
@@ -367,23 +384,82 @@
 
         function showOnMap(lat, lng, timeStr) {
             document.getElementById('map').style.display = 'block';
+            document.getElementById('btn-show-gps').style.display = 'block'; // GPSボタン表示
 
             if (!map) {
-                map = L.map('map').setView([lat, lng], 16);
+                map = L.map('map').setView([lat, lng], 15);
                 const gsiStd = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: "地理院タイル" });
                 const gsiOrtho = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/ort/{z}/{x}/{y}.jpg', { attribution: "地理院タイル(オルソ)" });
                 
+                // v1.6追加: 林野庁 森林計画対象森林レイヤ（全国林班図）
+                const rinpan = L.tileLayer('https://rinya-tiles.geospatial.jp/fr_layer_webp_2025/{z}/{x}/{y}.webp', { 
+                    attribution: "林野庁 森林計画対象森林レイヤ", 
+                    crossOrigin: "anonymous", 
+                    maxZoom: 16 
+                });
+                
                 gsiStd.addTo(map);
-                L.control.layers({ "標準地図": gsiStd, "オルソ画像": gsiOrtho }).addTo(map);
+                // 切り替えメニューに全国林班図を追加
+                L.control.layers({ "標準地図": gsiStd, "オルソ画像": gsiOrtho, "全国林班図": rinpan }).addTo(map);
             } else {
-                map.setView([lat, lng], 16);
+                map.setView([lat, lng], 15);
                 map.invalidateSize();
             }
 
-            if (marker) map.removeLayer(marker);
+            if (photoMarker) map.removeLayer(photoMarker);
             
-            marker = L.marker([lat, lng]).addTo(map);
-            marker.bindPopup(`<b>現地証明位置</b><br>${timeStr}`).openPopup();
+            photoMarker = L.marker([lat, lng]).addTo(map);
+            photoMarker.bindPopup(`<b>📸 撮影位置</b><br>${timeStr}`).openPopup();
+            
+            // ボタンのテキストをリセット
+            document.getElementById('btn-show-gps').innerText = "📍 現在地と照らし合わせる";
+            document.getElementById('btn-show-gps').disabled = false;
+        }
+
+        // v1.6追加: 現在地を地図上にプロットする関数
+        function addCurrentLocationToMap() {
+            const btn = document.getElementById('btn-show-gps');
+            btn.innerText = "📍 取得中...";
+            btn.disabled = true;
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+
+                    if (currentLocMarker) {
+                        map.removeLayer(currentLocMarker);
+                    }
+                    
+                    // 現在地は青色のサークルマーカーで強調表示
+                    currentLocMarker = L.circleMarker([lat, lng], {
+                        color: '#0056b3',
+                        fillColor: '#007bff',
+                        fillOpacity: 0.8,
+                        radius: 8,
+                        weight: 2
+                    }).addTo(map);
+                    
+                    currentLocMarker.bindPopup(`<b>📍 現在地</b>`).openPopup();
+
+                    // 写真の位置と現在地の両方が画面に収まるようにズーム調整
+                    if (photoMarker) {
+                        const bounds = L.latLngBounds([photoMarker.getLatLng(), currentLocMarker.getLatLng()]);
+                        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+                    } else {
+                        map.setView([lat, lng], 16);
+                    }
+
+                    btn.innerText = "📍 現在地を更新する";
+                    btn.disabled = false;
+                },
+                (err) => {
+                    alert("現在地の取得に失敗しました: " + err.message);
+                    btn.innerText = "📍 現在地と照らし合わせる";
+                    btn.disabled = false;
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
         }
     </script>
 </body>
