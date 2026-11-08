@@ -15,6 +15,10 @@
         body { margin: 0; font-family: 'Helvetica Neue', Arial, sans-serif; background: #f4f7f6; color: #333; }
         header { background: #27ae60; color: white; padding: 12px; text-align: center; font-size: 18px; font-weight: bold; }
         
+        /* ライブラリステータス帯 */
+        #lib-status { background-color: #27ae60; color: white; text-align: center; padding: 6px; font-size: 12px; font-weight: bold; }
+        .lib-error { background-color: #dc3545 !important; }
+        
         .tabs { display: flex; background: #fff; border-bottom: 2px solid #ddd; }
         .tab { flex: 1; text-align: center; padding: 12px; font-weight: bold; cursor: pointer; color: #666; }
         .tab.active { color: #27ae60; border-bottom: 3px solid #27ae60; background: #e8f5e9; }
@@ -31,7 +35,6 @@
         
         #location-display { font-size: 13px; font-weight: bold; color: #27ae60; margin-bottom: 15px; text-align: center; background: #e8f5e9; padding: 10px; border-radius: 4px; }
         
-        /* 撮影/選択ボタンを横並びにするためのコンテナ */
         .btn-group { display: flex; gap: 10px; margin-bottom: 15px; }
         .file-input-wrapper { flex: 1; position: relative; overflow: hidden; }
         .file-input-wrapper input[type=file] { position: absolute; left: 0; top: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
@@ -47,7 +50,8 @@
 </head>
 <body>
 
-    <header>現地証明 v1.2</header>
+    <header>現地証明 v1.3</header>
+    <div id="lib-status">⏳ ライブラリ読込中...</div>
 
     <div class="tabs">
         <div class="tab active" onclick="switchTab('generate')" id="tab-generate">📷 写真へQR合成</div>
@@ -63,7 +67,6 @@
             <div class="btn-group">
                 <div class="file-input-wrapper">
                     <button class="btn btn-green" id="btn-take-photo" disabled>📷 カメラで撮影</button>
-                    <!-- capture="environment" でAndroid/iOSともに直接外カメラを起動 -->
                     <input type="file" accept="image/*" capture="environment" id="photo-take" onchange="handlePhotoUpload(event)" disabled>
                 </div>
                 <div class="file-input-wrapper">
@@ -102,12 +105,23 @@
 
     <div id="hidden-qr"></div>
 
-    <!-- ライブラリ群 (最初から読み込んでSWでキャッシュさせる) -->
+    <!-- ライブラリ群 -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     
     <script>
+        // ＝＝＝ ライブラリ読込確認 ＝＝＝
+        window.addEventListener('load', () => {
+            const statusEl = document.getElementById('lib-status');
+            if (typeof jsQR !== 'undefined' && typeof L !== 'undefined' && typeof QRCode !== 'undefined') {
+                statusEl.innerText = '✅ ライブラリ準備OK';
+            } else {
+                statusEl.classList.add('lib-error');
+                statusEl.innerText = '❌ ライブラリ読込エラー（リロードしてください）';
+            }
+        });
+
         // ＝＝＝ サービスワーカー登録 ＝＝＝
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js');
@@ -141,7 +155,7 @@
             const dd = String(now.getDate()).padStart(2, '0');
             const hh = String(now.getHours()).padStart(2, '0');
             const mi = String(now.getMinutes()).padStart(2, '0');
-            return yyyy + mm + dd + hh + mi; // 12桁
+            return yyyy + mm + dd + hh + mi; 
         }
 
         function getLocation() {
@@ -158,7 +172,6 @@
                     display.innerText = `緯度: ${currentLat.toFixed(6)}\n経度: ${currentLng.toFixed(6)}\n日時: ${currentTimestamp}`;
                     display.style.color = "#27ae60";
                     
-                    // 撮影・選択ボタンを有効化
                     document.getElementById('btn-take-photo').disabled = false;
                     document.getElementById('photo-take').disabled = false;
                     document.getElementById('btn-select-photo').disabled = false;
@@ -190,7 +203,6 @@
         }
 
         function composeImageWithQR(img) {
-            // QRコードの文字列（緯度,経度,YYYYMMDDHHmm）
             const qrText = `${currentLat.toFixed(6)},${currentLng.toFixed(6)},${currentTimestamp}`;
             
             const qrContainer = document.getElementById('hidden-qr');
@@ -207,10 +219,8 @@
                 canvas.width = img.width;
                 canvas.height = img.height;
                 
-                // 写真を描画
                 ctx.drawImage(img, 0, 0);
 
-                // 右下に白背景でQRを合成
                 const qrSize = Math.floor(Math.min(img.width, img.height) * 0.25);
                 const padding = Math.floor(qrSize * 0.1);
                 const whiteBoxSize = qrSize + (padding * 2);
@@ -222,34 +232,28 @@
                 ctx.fillRect(x, y, whiteBoxSize, whiteBoxSize);
                 ctx.drawImage(qrCanvas, x + padding, y + padding, qrSize, qrSize);
 
-                // プレビュー表示
                 const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
                 document.getElementById('preview-image').src = dataUrl;
                 document.getElementById('preview-container').style.display = 'block';
             }, 200);
         }
 
-        // iPhoneのPWA等でも確実に保存・共有させるためのWeb Share API実装
         async function downloadImage() {
             const imgElement = document.getElementById('preview-image');
             const dataUrl = imgElement.src;
             const filename = `現地証明_${currentTimestamp}.jpg`;
             
             try {
-                // Base64をBlob(ファイル実体)に変換
                 const res = await fetch(dataUrl);
                 const blob = await res.blob();
-                
                 const file = new File([blob], filename, { type: blob.type });
 
-                // iOS/Androidのネイティブ共有機能（「画像を保存」「ファイルに保存」など）を呼び出す
                 if (navigator.canShare && navigator.canShare({ files: [file] })) {
                     await navigator.share({
                         files: [file],
                         title: '現地証明写真',
                     });
                 } else {
-                    // PCやWeb Share API非対応環境向けの従来のダウンロード
                     const link = document.createElement('a');
                     link.href = dataUrl;
                     link.download = filename;
@@ -266,7 +270,6 @@
         let map = null;
         let marker = null;
 
-        // 12桁日時(YYYYMMDDHHmm)を可読文字列に変換
         function parseTimestamp(ts) {
             if(ts.length !== 12) return ts;
             const yyyy = ts.slice(0, 4);
@@ -303,7 +306,6 @@
         }
 
         function analyzeQRFromImage(img) {
-            // スマホの巨大な写真をそのまま処理するとjsQRが失敗するため、最大幅を1200pxに制限してCanvasに描画
             const MAX_WIDTH = 1200;
             let width = img.width;
             let height = img.height;
@@ -318,7 +320,6 @@
             canvas.height = height;
             const ctx = canvas.getContext("2d");
             
-            // 縮小して描画
             ctx.drawImage(img, 0, 0, width, height);
             
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -328,25 +329,28 @@
             
             if (code && code.data) {
                 const data = code.data;
-                
-                // URL（ポータルサイト等）のQRコードだった場合の対応
-                if (data.startsWith('http://') || data.startsWith('https://')) {
-                    resultDisplay.innerHTML = `<b>🔗 URLを検出しました</b><br><a href="${data}" target="_blank" style="word-break: break-all;">${data}</a>`;
-                    return;
-                }
-
-                // 現地証明アプリのQRデータ（カンマ区切り3要素）の判定
                 const parts = data.split(',');
-                if (parts.length === 3) {
+                
+                // 1. 現地証明アプリのQRデータ判定を最優先（URLより先にチェック）
+                if (parts.length === 3 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1])) && parts[2].length === 12) {
                     const lat = parseFloat(parts[0]);
                     const lng = parseFloat(parts[1]);
                     const timeStr = parseTimestamp(parts[2]);
                     
                     resultDisplay.innerHTML = `<b>✅ 証明データを復元しました</b><br>緯度：${lat}<br>経度：${lng}<br>撮影日時：${timeStr}`;
                     showOnMap(lat, lng, timeStr);
-                } else {
-                    resultDisplay.innerHTML = `❌ 未対応のデータ形式です<br>${data}`;
+                    return; // ここで処理を終了し、下のURL処理には進まない
                 }
+
+                // 2. URL（ポータルサイト等）のQRコードだった場合の対応
+                if (data.startsWith('http://') || data.startsWith('https://')) {
+                    resultDisplay.innerHTML = `<b>🔗 URLを検出しました</b><br><a href="${data}" target="_blank" style="word-break: break-all;">${data}</a>`;
+                    return;
+                }
+
+                // 3. どちらでもない場合
+                resultDisplay.innerHTML = `❌ 未対応のデータ形式です<br>${data}`;
+                
             } else {
                 resultDisplay.innerHTML = "❌ 写真からQRコードを検出できませんでした。<br>ピンボケしていないか、明るい場所で撮影されたものか確認してください。";
             }
