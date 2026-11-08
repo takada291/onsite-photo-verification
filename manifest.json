@@ -1,0 +1,16 @@
+{
+  "name": "現地証明",
+  "short_name": "現地証明",
+  "description": "写真に位置情報QRを合成し、現地証明を行うアプリ",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f4f7f6",
+  "theme_color": "#27ae60",
+  "icons": [
+    {
+      "src": "icon_onsite-photo-verification.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>現地証明</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { margin: 0; font-family: 'Helvetica Neue', Arial, sans-serif; background: #f4f7f6; color: #333; }
+        header { background: #27ae60; color: white; padding: 12px; text-align: center; font-size: 18px; font-weight: bold; }
+        
+        .tabs { display: flex; background: #fff; border-bottom: 2px solid #ddd; }
+        .tab { flex: 1; text-align: center; padding: 12px; font-weight: bold; cursor: pointer; color: #666; }
+        .tab.active { color: #27ae60; border-bottom: 3px solid #27ae60; background: #e8f5e9; }
+        
+        .content { padding: 15px; display: none; }
+        .content.active { display: block; }
+        
+        .btn { display: block; width: 100%; padding: 12px; margin-bottom: 15px; font-size: 14px; font-weight: bold; color: white; background: #007bff; border: none; border-radius: 6px; cursor: pointer; text-align: center; box-sizing: border-box; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-green { background: #28a745; }
+        .btn-teal { background: #20c997; }
+        .btn-red { background: #dc3545; }
+        
+        /* 共通パネルスタイル */
+        .panel { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 15px; }
+        
+        /* タブ1: 生成用 */
+        #location-display { font-size: 13px; font-weight: bold; color: #27ae60; margin-bottom: 15px; text-align: center; background: #e8f5e9; padding: 10px; border-radius: 4px; }
+        .file-input-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; margin-bottom: 15px; }
+        .file-input-wrapper input[type=file] { position: absolute; left: 0; top: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+        
+        #preview-container { text-align: center; margin-bottom: 15px; display: none; }
+        #preview-image { max-width: 100%; border: 2px solid #ccc; border-radius: 4px; }
+        
+        /* タブ2: 読込用 */
+        #library-load-area { border: 2px dashed #20c997; padding: 15px; border-radius: 8px; margin-bottom: 15px; background: #f0fdf4; }
+        #qr-result-display { font-size: 13px; background: #fff3cd; padding: 10px; border-radius: 4px; margin-bottom: 15px; display: none; border: 1px solid #ffeeba; }
+        #map { height: 300px; width: 100%; border-radius: 8px; border: 1px solid #ccc; display: none; z-index: 1; }
+        
+        /* QR生成用の不可視コンテナ */
+        #hidden-qr { display: none; }
+    </style>
+</head>
+<body>
+
+    <header>現地証明</header>
+
+    <div class="tabs">
+        <div class="tab active" onclick="switchTab('generate')" id="tab-generate">📷 写真へQR合成</div>
+        <div class="tab" onclick="switchTab('verify')" id="tab-verify">🔍 QR読込・確認</div>
+    </div>
+
+    <!-- ＝＝＝【タブ1】写真へQR合成 ＝＝＝ -->
+    <div id="content-generate" class="content active">
+        <div class="panel">
+            <button class="btn btn-teal" onclick="getLocation()">📍 現在地を取得する</button>
+            <div id="location-display">位置情報：未取得</div>
+            
+            <div class="file-input-wrapper">
+                <button class="btn btn-green" id="btn-select-photo" disabled>📷 現場写真を撮影／選択する</button>
+                <input type="file" accept="image/*" id="photo-input" onchange="handlePhotoUpload(event)" disabled>
+            </div>
+            
+            <div id="preview-container">
+                <img id="preview-image" alt="プレビュー">
+                <a id="download-link" style="display:none;"></a>
+                <button class="btn btn-teal" style="margin-top: 10px;" onclick="downloadImage()">💾 合成した写真を保存する</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ＝＝＝【タブ2】QR読込・確認 ＝＝＝ -->
+    <div id="content-verify" class="content">
+        <div class="panel">
+            <div id="library-load-area">
+                <div style="font-size:12px; margin-bottom:8px; color:#555; text-align:center;">※初回およびアプデ時はオンラインで読込が必要です</div>
+                <button class="btn btn-teal" id="btn-load-jsqr" onclick="loadJsQR()">📦 QR解析ライブラリ読込 (要オンライン)</button>
+            </div>
+
+            <div class="file-input-wrapper">
+                <button class="btn btn-green" id="btn-read-photo" disabled>📂 証明写真を読み込む</button>
+                <input type="file" accept="image/*" id="qr-photo-input" onchange="handleQRPhoto(event)" disabled>
+            </div>
+            
+            <div id="qr-result-display"></div>
+            <div id="map"></div>
+        </div>
+    </div>
+
+    <div id="hidden-qr"></div>
+
+    <!-- Leaflet & qrcode.js (初期ロード) -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    
+    <script>
+        // ＝＝＝ サービスワーカー登録 ＝＝＝
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').then(() => {
+                console.log('Service Worker Registered');
+            });
+        }
+
+        // ＝＝＝ タブ切り替え制御 ＝＝＝
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+            
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+            document.getElementById(`content-${tabId}`).classList.add('active');
+            
+            if(tabId === 'verify' && map) {
+                setTimeout(() => map.invalidateSize(), 200);
+            }
+        }
+
+        // ==========================================
+        // 【タブ1】QR合成機能
+        // ==========================================
+        let currentLat = null;
+        let currentLng = null;
+        let currentTimestamp = "";
+
+        // 日時を YYYYMMDDHHmmss の14桁で取得
+        function generate14DigitTimestamp() {
+            const now = new Date();
+            const yyyy = String(now.getFullYear());
+            const mm = String(now.getMonth() + 1).padStart(2, '0');
+            const dd = String(now.getDate()).padStart(2, '0');
+            const hh = String(now.getHours()).padStart(2, '0');
+            const mi = String(now.getMinutes()).padStart(2, '0');
+            const ss = String(now.getSeconds()).padStart(2, '0');
+            return yyyy + mm + dd + hh + mi + ss;
+        }
+
+        function getLocation() {
+            const display = document.getElementById('location-display');
+            display.innerText = "📍 取得中...";
+            display.style.color = "#007bff";
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    currentLat = pos.coords.latitude;
+                    currentLng = pos.coords.longitude;
+                    currentTimestamp = generate14DigitTimestamp(); // 14桁に変更
+                    
+                    display.innerText = `緯度: ${currentLat.toFixed(6)}\n経度: ${currentLng.toFixed(6)}\n日時: ${currentTimestamp}`;
+                    display.style.color = "#27ae60";
+                    
+                    document.getElementById('btn-select-photo').disabled = false;
+                    document.getElementById('photo-input').disabled = false;
+                },
+                (err) => {
+                    alert("位置情報の取得に失敗しました: " + err.message);
+                    display.innerText = "位置情報：取得失敗";
+                    display.style.color = "#dc3545";
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+
+        function handlePhotoUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    composeImageWithQR(img);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+            event.target.value = ""; // リセット
+        }
+
+        function composeImageWithQR(img) {
+            // QRコードの文字列（小数点以下6桁 ＋ 14桁日時）
+            const qrText = `${currentLat.toFixed(6)},${currentLng.toFixed(6)},${currentTimestamp}`;
+            
+            // 非表示エリアにQRコードを描画 (qrcode.js は Canvasを生成する)
+            const qrContainer = document.getElementById('hidden-qr');
+            qrContainer.innerHTML = ""; 
+            new QRCode(qrContainer, {
+                text: qrText, width: 300, height: 300,
+                colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.M
+            });
+
+            setTimeout(() => {
+                const qrCanvas = qrContainer.querySelector('canvas');
+                
+                // メイン画像の合成用Canvas
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                
+                // 写真を描画
+                ctx.drawImage(img, 0, 0);
+
+                // 右下に白背景でQRを合成
+                const qrSize = Math.floor(Math.min(img.width, img.height) * 0.25); // 画像の短辺の25%
+                const padding = Math.floor(qrSize * 0.1);
+                const whiteBoxSize = qrSize + (padding * 2);
+                
+                const x = img.width - whiteBoxSize - 20; // 右からの余白20px
+                const y = img.height - whiteBoxSize - 20; // 下からの余白20px
+
+                // 白背景
+                ctx.fillStyle = "white";
+                ctx.fillRect(x, y, whiteBoxSize, whiteBoxSize);
+                
+                // QRコード描画
+                ctx.drawImage(qrCanvas, x + padding, y + padding, qrSize, qrSize);
+
+                // プレビュー表示
+                const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+                document.getElementById('preview-image').src = dataUrl;
+                document.getElementById('preview-container').style.display = 'block';
+            }, 100);
+        }
+
+        function downloadImage() {
+            const dataUrl = document.getElementById('preview-image').src;
+            const link = document.getElementById('download-link');
+            link.href = dataUrl;
+            link.download = `現地証明_${currentTimestamp}.jpg`;
+            link.click();
+        }
+
+        // ==========================================
+        // 【タブ2】QR読込・地図表示機能
+        // ==========================================
+        let map = null;
+        let marker = null;
+
+        // 14桁日時(YYYYMMDDHHmmss)を可読文字列に変換
+        function parseTimestamp(ts) {
+            if(ts.length !== 14) return ts;
+            const yyyy = ts.slice(0, 4);
+            const mm = ts.slice(4, 6);
+            const dd = ts.slice(6, 8);
+            const hh = ts.slice(8, 10);
+            const mi = ts.slice(10, 12);
+            const ss = ts.slice(12, 14);
+            return `${yyyy}年${mm}月${dd}日 ${hh}:${mi}:${ss}`;
+        }
+
+        function loadJsQR() {
+            if (typeof jsQR !== 'undefined') {
+                alert('既に読み込み済みです。');
+                return;
+            }
+            const btn = document.getElementById('btn-load-jsqr');
+            btn.innerText = "読み込み中...";
+            
+            const script = document.createElement('script');
+            script.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js";
+            script.onload = () => {
+                alert('QR解析ライブラリの読み込みが完了しました。\nオフラインでも読込機能が使用可能です。');
+                btn.classList.remove('btn-teal');
+                btn.classList.add('btn-green');
+                btn.innerText = '⚡ ライブラリ読込完了';
+                btn.disabled = true;
+                
+                document.getElementById('btn-read-photo').disabled = false;
+                document.getElementById('qr-photo-input').disabled = false;
+            };
+            script.onerror = () => {
+                alert('読み込みに失敗しました。オンライン環境か確認してください。');
+                btn.innerText = '📦 QR解析ライブラリ読込 (要オンライン)';
+            };
+            document.head.appendChild(script);
+        }
+
+        function handleQRPhoto(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    analyzeQRFromImage(img);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+            event.target.value = "";
+        }
+
+        function analyzeQRFromImage(img) {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+
+            const resultDisplay = document.getElementById('qr-result-display');
+            
+            if (code && code.data) {
+                const parts = code.data.split(',');
+                if (parts.length === 3) {
+                    const lat = parseFloat(parts[0]);
+                    const lng = parseFloat(parts[1]);
+                    const timeStr = parseTimestamp(parts[2]);
+                    
+                    resultDisplay.style.display = 'block';
+                    resultDisplay.innerHTML = `<b>✅ 証明データを復元しました</b><br>緯度：${lat}<br>経度：${lng}<br>撮影日時：${timeStr}`;
+                    
+                    showOnMap(lat, lng, timeStr);
+                } else {
+                    alert("現地証明用のQRコードではありません。\nデータ: " + code.data);
+                }
+            } else {
+                alert("写真からQRコードを検出できませんでした。\n明るい場所で撮影されたものか確認してください。");
+            }
+        }
+
+        function showOnMap(lat, lng, timeStr) {
+            document.getElementById('map').style.display = 'block';
+
+            if (!map) {
+                map = L.map('map').setView([lat, lng], 16);
+                const gsiStd = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', { attribution: "地理院タイル" });
+                const gsiOrtho = L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/ort/{z}/{x}/{y}.jpg', { attribution: "地理院タイル(オルソ)" });
+                
+                gsiStd.addTo(map);
+                L.control.layers({ "標準地図": gsiStd, "オルソ画像": gsiOrtho }).addTo(map);
+            } else {
+                map.setView([lat, lng], 16);
+                map.invalidateSize();
+            }
+
+            if (marker) map.removeLayer(marker);
+            
+            marker = L.marker([lat, lng]).addTo(map);
+            marker.bindPopup(`<b>現地証明位置</b><br>${timeStr}`).openPopup();
+        }
+    </script>
+</body>
+</html>
