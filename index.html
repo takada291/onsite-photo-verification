@@ -50,7 +50,7 @@
 </head>
 <body>
 
-    <header>現地証明 v1.3</header>
+    <header>現地証明 v1.4</header>
     <div id="lib-status">⏳ ライブラリ読込中...</div>
 
     <div class="tabs">
@@ -66,10 +66,11 @@
             
             <div class="btn-group">
                 <div class="file-input-wrapper">
-                    <button class="btn btn-green" id="btn-take-photo" disabled>📷 カメラで撮影</button>
+                    <button class="btn btn-green" id="btn-take-photo" disabled>📷 カメラで撮影する</button>
                     <input type="file" accept="image/*" capture="environment" id="photo-take" onchange="handlePhotoUpload(event)" disabled>
                 </div>
-                <div class="file-input-wrapper">
+                <!-- 現地証明の信憑性担保のため、QR合成側からはフォルダ選択ボタンを非表示に -->
+                <div class="file-input-wrapper" style="display: none;">
                     <button class="btn btn-green" id="btn-select-photo" disabled>📁 フォルダ選択</button>
                     <input type="file" accept="image/*" id="photo-select" onchange="handlePhotoUpload(event)" disabled>
                 </div>
@@ -339,7 +340,7 @@
                     
                     resultDisplay.innerHTML = `<b>✅ 証明データを復元しました</b><br>緯度：${lat}<br>経度：${lng}<br>撮影日時：${timeStr}`;
                     showOnMap(lat, lng, timeStr);
-                    return; // ここで処理を終了し、下のURL処理には進まない
+                    return; 
                 }
 
                 // 2. URL（ポータルサイト等）のQRコードだった場合の対応
